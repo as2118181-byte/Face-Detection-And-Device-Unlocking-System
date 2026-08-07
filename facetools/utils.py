@@ -101,3 +101,29 @@ def visualize_results(
         2,
     )
     return frame
+
+#added
+
+def compute_identity_confidence(distance_score: float, threshold: float = 0.85) -> float:
+    """
+    Converts the raw L2 embedding distance into a 0-100% "match confidence".
+
+    IMPORTANT: The recognition model outputs a raw Euclidean distance, not a
+    probability. This function does NOT invent a fake softmax score — it
+    simply rescales the distance relative to your existing decision
+    threshold, so 0% = right at the rejection threshold, 100% = a perfect
+    (distance = 0) match. This should be labeled "match confidence" in the
+    UI, not "model probability", since it's a threshold-relative measure.
+    """
+    confidence = (1 - (distance_score / threshold)) * 100
+    return float(np.clip(confidence, 0, 100))
+
+
+def compute_liveness_confidence(liveness_score: float) -> float:
+    """
+    DeepPixBiS's two outputs (pixel-wise map + binary head) are both
+    sigmoid-activated, so liveness_score is already a genuine bounded
+    value in [0, 1] representing the model's estimated P(live).
+    This just expresses it as a percentage for display purposes.
+    """
+    return float(np.clip(liveness_score, 0, 1) * 100)

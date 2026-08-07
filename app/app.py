@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from flask import Flask, Response, request
 
 from facetools import FaceDetection, IdentityVerification, LivenessDetection
+from facetools.utils import compute_identity_confidence, compute_liveness_confidence
 
 # =====================================================
 # AI Secure Face Authentication API
@@ -29,6 +30,13 @@ face_database = environ.get("FACE_DATABASE")
 face_model_path = data_folder / "checkpoints" / face_recognition_model
 liveness_model_path = data_folder / "checkpoints" / liveness_model
 face_database_path = data_folder / face_database
+
+# -----------------------------------------------------
+# Decision Thresholds (unchanged from original logic)
+# -----------------------------------------------------
+
+LIVENESS_THRESHOLD = 0.03
+IDENTITY_THRESHOLD = 0.85
 
 # -----------------------------------------------------
 # Load AI Models
@@ -77,6 +85,8 @@ def authenticate():
             "authentication": False,
             "liveness_score": None,
             "similarity_score": None,
+            "liveness_confidence": None,
+            "identity_confidence": None,
         }
 
         status = 400
@@ -89,7 +99,7 @@ def authenticate():
 
         live_score = liveness_detector(face)
 
-        authenticated = bool(live_score > 0.03 and mean_score < 0.85)
+        authenticated = bool(live_score > LIVENESS_THRESHOLD and mean_score < IDENTITY_THRESHOLD)
 
         response = {
             "status": "success",
@@ -97,6 +107,8 @@ def authenticate():
             "authentication": authenticated,
             "liveness_score": float(live_score),
             "similarity_score": float(mean_score),
+            "liveness_confidence": compute_liveness_confidence(live_score),
+            "identity_confidence": compute_identity_confidence(mean_score, IDENTITY_THRESHOLD),
         }
 
         status = 200
@@ -128,6 +140,7 @@ def recognition():
             "status": "failed",
             "message": "No face detected.",
             "similarity_score": None,
+            "identity_confidence": None,
         }
 
         status = 400
@@ -142,6 +155,7 @@ def recognition():
             "status": "success",
             "message": "Face verification completed.",
             "similarity_score": float(mean_score),
+            "identity_confidence": compute_identity_confidence(mean_score, IDENTITY_THRESHOLD),
         }
 
         status = 200
@@ -173,6 +187,7 @@ def liveness():
             "status": "failed",
             "message": "No face detected.",
             "liveness_score": None,
+            "liveness_confidence": None,
         }
 
         status = 400
@@ -187,6 +202,7 @@ def liveness():
             "status": "success",
             "message": "Liveness verification completed.",
             "liveness_score": float(live_score),
+            "liveness_confidence": compute_liveness_confidence(live_score),
         }
 
         status = 200
