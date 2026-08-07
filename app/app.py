@@ -6,137 +6,207 @@ import cv2
 import jsonpickle
 import numpy as np
 from dotenv import load_dotenv
-from facetools import FaceDetection, IdentityVerification, LivenessDetection
 from flask import Flask, Response, request
+
+from facetools import FaceDetection, IdentityVerification, LivenessDetection
+
+# =====================================================
+# AI Secure Face Authentication API
+# Developed by Arun Sharma
+# =====================================================
 
 root = Path(os.path.abspath(__file__)).parent.absolute()
 
-load_dotenv((root / ".env").as_posix())  # take environment variables from .env.
+# Load Environment Variables
+load_dotenv((root / ".env").as_posix())
 
-data_folder = environ.get("DATA_FOLDER")
-resnet_name = environ.get("RESNET")
-deeppix_name = environ.get("DEEPPIX")
-facebank_name = environ.get("FACEBANK")
+data_folder = root.parent / environ.get("DATA_FOLDER")
 
+face_recognition_model = environ.get("FACE_RECOGNITION_MODEL")
+liveness_model = environ.get("LIVENESS_MODEL")
+face_database = environ.get("FACE_DATABASE")
 
-data_folder = root.parent / data_folder
+face_model_path = data_folder / "checkpoints" / face_recognition_model
+liveness_model_path = data_folder / "checkpoints" / liveness_model
+face_database_path = data_folder / face_database
 
-resNet_checkpoint_path = data_folder / "checkpoints" / resnet_name
-facebank_path = data_folder / facebank_name
+# -----------------------------------------------------
+# Load AI Models
+# -----------------------------------------------------
 
-deepPix_checkpoint_path = data_folder / "checkpoints" / deeppix_name
+face_detector = FaceDetection()
 
-faceDetector = FaceDetection()
-identityChecker = IdentityVerification(
-    checkpoint_path=resNet_checkpoint_path.as_posix(),
-    facebank_path=facebank_path.as_posix(),
+identity_verifier = IdentityVerification(
+    checkpoint_path=face_model_path.as_posix(),
+    facebank_path=face_database_path.as_posix(),
 )
-livenessDetector = LivenessDetection(checkpoint_path=deepPix_checkpoint_path.as_posix())
+
+liveness_detector = LivenessDetection(
+    checkpoint_path=liveness_model_path.as_posix()
+)
+
+# -----------------------------------------------------
+# Flask App
+# -----------------------------------------------------
 
 app = Flask(__name__)
 
+app.config["PROJECT_NAME"] = "AI Secure Face Authentication API"
+app.config["VERSION"] = "1.0"
+
+# =====================================================
+# Combined Authentication
+# =====================================================
+
+@app.route("/authenticate", methods=["POST"])
+def authenticate():
+
+    image_bytes = request.data
+
+    image_array = np.frombuffer(image_bytes, np.uint8)
+
+    frame = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+
+    faces, boxes = face_detector(frame)
+
+    if len(faces) == 0:
+
+        response = {
+            "status": "failed",
+            "message": "No face detected.",
+            "authentication": False,
+            "liveness_score": None,
+            "similarity_score": None,
+        }
+
+        status = 400
+
+    else:
+
+        face = faces[0]
+
+        min_score, mean_score = identity_verifier(face)
+
+        live_score = liveness_detector(face)
+
+        authenticated = bool(live_score > 0.03 and mean_score < 0.85)
+
+        response = {
+            "status": "success",
+            "message": "Authentication completed.",
+            "authentication": authenticated,
+            "liveness_score": float(live_score),
+            "similarity_score": float(mean_score),
+        }
+
+        status = 200
+
+    return Response(
+        response=jsonpickle.encode(response),
+        status=status,
+        mimetype="application/json",
+    )
+
+# =====================================================
+# Face Recognition
+# =====================================================
 
 @app.route("/main", methods=["POST"])
-def main():
-    r = request
-    # convert string of image data to uint8
-    nparr = np.frombuffer(r.data, np.uint8)
-    # decode image
-    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    faces, boxes = faceDetector(frame)
+def recognition():
 
-    if not len(faces):
+    image_bytes = request.data
+
+    image_array = np.frombuffer(image_bytes, np.uint8)
+
+    frame = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+
+    faces, boxes = face_detector(frame)
+
+    if len(faces) == 0:
+
         response = {
-            "message": "There is not any faces in the image.",
-            "min_sim_score": None,
-            "mean_sim_score": None,
-            "liveness_score": None,
+            "status": "failed",
+            "message": "No face detected.",
+            "similarity_score": None,
         }
-        status_code = 500
+
+        status = 400
+
     else:
-        face_arr = faces[0]
-        min_sim_score, mean_sim_score = identityChecker(face_arr)
-        liveness_score = livenessDetector(face_arr)
+
+        face = faces[0]
+
+        min_score, mean_score = identity_verifier(face)
 
         response = {
-            "message": "Everything is OK.",
-            "min_sim_score": min_sim_score.item(),
-            "mean_sim_score": mean_sim_score.item(),
-            "liveness_score": liveness_score.item(),
+            "status": "success",
+            "message": "Face verification completed.",
+            "similarity_score": float(mean_score),
         }
-        status_code = 200
 
-    response_pickled = jsonpickle.encode(response)
+        status = 200
+
     return Response(
-        response=response_pickled, status=status_code, mimetype="application/json"
+        response=jsonpickle.encode(response),
+        status=status,
+        mimetype="application/json",
     )
 
-
-@app.route("/identity", methods=["POST"])
-def identity():
-    r = request
-    # convert string of image data to uint8
-    nparr = np.frombuffer(r.data, np.uint8)
-    # decode image
-    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    faces, boxes = faceDetector(frame)
-
-    if not len(faces):
-        response = {
-            "message": "There is not any faces in the image.",
-            "min_sim_score": None,
-            "mean_sim_score": None,
-        }
-        status_code = 500
-    else:
-        face_arr = faces[0]
-        min_sim_score, mean_sim_score = identityChecker(face_arr)
-
-        response = {
-            "message": "Everything is OK.",
-            "min_sim_score": min_sim_score.item(),
-            "mean_sim_score": mean_sim_score.item(),
-        }
-        status_code = 200
-
-    response_pickled = jsonpickle.encode(response)
-    return Response(
-        response=response_pickled, status=status_code, mimetype="application/json"
-    )
-
+# =====================================================
+# Liveness Detection
+# =====================================================
 
 @app.route("/liveness", methods=["POST"])
 def liveness():
-    r = request
-    # convert string of image data to uint8
-    nparr = np.frombuffer(r.data, np.uint8)
-    # decode image
-    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    faces, boxes = faceDetector(frame)
 
-    if not len(faces):
+    image_bytes = request.data
+
+    image_array = np.frombuffer(image_bytes, np.uint8)
+
+    frame = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+
+    faces, boxes = face_detector(frame)
+
+    if len(faces) == 0:
+
         response = {
-            "message": "There is not any faces in the image.",
+            "status": "failed",
+            "message": "No face detected.",
             "liveness_score": None,
         }
-        status_code = 500
+
+        status = 400
+
     else:
-        face_arr = faces[0]
-        min_sim_score, mean_sim_score = identityChecker(face_arr)
-        liveness_score = livenessDetector(face_arr)
+
+        face = faces[0]
+
+        live_score = liveness_detector(face)
 
         response = {
-            "message": "Everything is OK.",
-            "liveness_score": liveness_score.item(),
+            "status": "success",
+            "message": "Liveness verification completed.",
+            "liveness_score": float(live_score),
         }
-        status_code = 200
 
-    response_pickled = jsonpickle.encode(response)
+        status = 200
+
     return Response(
-        response=response_pickled, status=status_code, mimetype="application/json"
+        response=jsonpickle.encode(response),
+        status=status,
+        mimetype="application/json",
     )
 
+# =====================================================
+# Run Server
+# =====================================================
 
 if __name__ == "__main__":
-    # start flask app
+    print("=" * 55)
+    print("AI Secure Face Authentication API")
+    print("Version : 1.0")
+    print("Developed by Arun Sharma")
+    print("Server running at http://127.0.0.1:5000")
+    print("=" * 55)
+
     app.run(host="0.0.0.0", port=5000)
