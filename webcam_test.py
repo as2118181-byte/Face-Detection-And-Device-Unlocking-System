@@ -13,6 +13,13 @@ from dotenv import load_dotenv
 from fer.fer import FER
 
 from facetools import FaceDetection, IdentityVerification, LivenessDetection
+import subprocess
+
+def play_alarm(alarm_type="generic"):
+    try:
+        subprocess.Popen(["alarm.exe", alarm_type], shell=True)
+    except Exception as e:
+        print(f"Could not play alarm: {e}")
 
 # -------------------------------------------------
 # Load secrets from .env
@@ -224,6 +231,7 @@ while True:
             elif (current_time - fear_start_time) >= FEAR_DURATION_SECONDS:
                 if (current_time - last_alert_time) >= ALERT_COOLDOWN_SECONDS:
                     print(">>> 5s Fear → Sending Email...")
+                    play_alarm("fear")
                     send_fear_alert(person_name)
                     last_alert_time = current_time
                 fear_start_time = None
@@ -241,12 +249,14 @@ while True:
             elif (current_time - spoof_start_time) >= SPOOF_DURATION_SECONDS:
                 # ----- 5 seconds completed -----
                 print(">>> 5s continuous Spoof detected!")
+                play_alarm("spoof")
 
                 # 1. Save spoof photo
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 spoof_path = spoof_folder / f"spoof_{timestamp}.jpg"
                 cv2.imwrite(str(spoof_path), frame)
                 print(f"Spoof photo saved: {spoof_path.name}")
+                
 
                 # 2. Send email alert
                 if (current_time - last_alert_time) >= ALERT_COOLDOWN_SECONDS:
