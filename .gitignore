@@ -140,3 +140,8 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Secrets – never commit
+.env
+.env.local
+*.env
