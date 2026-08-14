@@ -1,15 +1,12 @@
 import urllib
 from pathlib import Path
-
 import cv2
 import numpy as np
 import onnxruntime
 import progressbar
 from PIL import Image
 from torchvision import transforms as T
-
 pbar = None
-
 class LivenessDetection:
     def __init__(self, checkpoint_path: str):
         if not Path(checkpoint_path).is_file():
@@ -40,8 +37,6 @@ class LivenessDetection:
             np.mean(output_pixel.flatten()) + np.mean(output_binary.flatten())
         ) / 2.0
         return liveness_score
-
-
 def show_progress(block_num, block_size, total_size):
     global pbar
     if pbar is None:

@@ -1,11 +1,7 @@
 from typing import List, Tuple
-
 import mediapipe as mp
 import numpy as np
-
 from .utils import extract_face
-
-
 class FaceDetection:
     def __init__(self, max_num_faces: int = 1):
         self.detector = mp.solutions.face_mesh.FaceMesh(

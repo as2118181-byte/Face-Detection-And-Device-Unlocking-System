@@ -32,7 +32,7 @@ service = args.service
 # prepare headers for http request
 content_type = 'image/jpeg'
 headers = {'content-type': content_type}
-URL = f"http://{host}:{port}/{service}"  # main, liveness, identity
+URL = f"http://{host}:{port}/{service}"
 
 
 def post_image(img_file):

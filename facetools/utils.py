@@ -1,25 +1,18 @@
 import os
-
 import cv2
 import numpy as np
 import torch
 from PIL import Image
 from torch.nn.functional import interpolate
 from torchvision import transforms as T
-
-
 def imresample(img, sz):
     im_data = interpolate(img, size=sz, mode="area")
     return im_data
-
-
 def get_size(img):
     if isinstance(img, (np.ndarray, torch.Tensor)):
         return img.shape[1::-1]
     else:
         return img.size
-
-
 def crop_resize(img, box, image_size):
     if isinstance(img, np.ndarray):
         img = img[box[1] : box[3], box[0] : box[2]]
@@ -39,15 +32,11 @@ def crop_resize(img, box, image_size):
     else:
         out = img.crop(box).copy().resize((image_size, image_size), Image.BILINEAR)
     return out
-
-
 def save_img(img, path):
     if isinstance(img, np.ndarray):
         cv2.imwrite(path, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
     else:
         img.save(path)
-
-
 def extract_face(img, box, image_size=160, margin=0, save_path=None):
     margin = [
         margin * (box[2] - box[0]) / (image_size - margin),
@@ -68,8 +57,6 @@ def extract_face(img, box, image_size=160, margin=0, save_path=None):
         save_img(face, save_path)
 
     return face
-
-
 def visualize_results(
     frame: np.ndarray, box: np.ndarray, liveness_score: int, verification_score: int
 ):
@@ -101,9 +88,6 @@ def visualize_results(
         2,
     )
     return frame
-
-#added
-
 def compute_identity_confidence(distance_score: float, threshold: float = 0.85) -> float:
     """
     Converts the raw L2 embedding distance into a 0-100% "match confidence".
