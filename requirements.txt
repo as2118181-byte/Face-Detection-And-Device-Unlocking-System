@@ -18,3 +18,7 @@ protobuf==4.25.3
 progressbar2==4.2.0
 fer
 python-dotenv
+
+# mkdir -p data/images/PersonName
+# python create_facebank.py --images ./data/images --checkpoint ./data/checkpoints/InceptionResnetV1_vggface2.onnx --output ./data/face_database.csv
+# python webcam_test.py

@@ -6,6 +6,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
+from collections import deque
 
 import cv2
 import numpy as np
@@ -41,23 +42,31 @@ resNet_checkpoint_path = data_folder / "checkpoints" / "InceptionResnetV1_vggfac
 facebank_path = data_folder / "face_database.csv"
 deepPix_checkpoint_path = data_folder / "checkpoints" / "OULU_Protocol_2_model_0_0.onnx"
 
-# Folder for spoof photos
+# Folders
 spoof_folder = root / "spoofs_detected"
 spoof_folder.mkdir(exist_ok=True)
+unknown_folder = root / "unknown_detected"
+unknown_folder.mkdir(exist_ok=True)
 
 # Decision Thresholds
-LIVENESS_THRESHOLD = 0.03
+LIVENESS_THRESHOLD = 0.12          # slightly lower + smoother = more stable for real faces
 IDENTITY_THRESHOLD = 0.85
 
 # Timing settings
 FEAR_DURATION_SECONDS = 5.0
 SPOOF_DURATION_SECONDS = 5.0
+UNKNOWN_DURATION_SECONDS = 5.0
 ALERT_COOLDOWN_SECONDS = 60.0
 RESET_TOLERANCE = 0.8
 
 # Anti-Brute Force / Lock settings
 MAX_FAILED_ATTEMPTS = 4
-LOCK_DURATION_SECONDS = 5 * 60   # 5 minutes
+LOCK_DURATION_SECONDS = 5 * 60
+
+# Temporal smoothing (makes decisions stable)
+HISTORY_LEN = 8                    # look at last 8 frames
+live_history = deque(maxlen=HISTORY_LEN)
+auth_history = deque(maxlen=HISTORY_LEN)
 
 # -------------------------------------------------
 # Load Models
@@ -127,13 +136,30 @@ Time of Attack : {attack_time}
 """
     send_alert("SECURITY ALERT: Spoof Attack Detected", body)
 
+
+def send_unknown_alert():
+    attack_time = time.strftime('%Y-%m-%d %H:%M:%S')
+    body = f"""
+SECURITY ALERT – Face Authentication System
+
+An UNKNOWN / UNAUTHORIZED live person was continuously present for more than {UNKNOWN_DURATION_SECONDS} seconds.
+A photo has been saved.
+
+Time of Attack : {attack_time}
+
+— AI Secure Face Authentication System
+"""
+    send_alert("SECURITY ALERT: Unauthorized Person Detected", body)
+
 # -------------------------------------------------
 # State variables
 # -------------------------------------------------
 fear_start_time = None
 spoof_start_time = None
+unknown_start_time = None
 last_fear_seen = 0.0
 last_spoof_seen = 0.0
+last_unknown_seen = 0.0
 last_alert_time = 0.0
 
 failed_attempts = 0
@@ -145,7 +171,8 @@ lock_until = 0.0
 cap = cv2.VideoCapture(0)
 
 print("System started... Press 'q' to quit")
-print(f"Spoof photos will be saved in: {spoof_folder}")
+print(f"Spoof photos  → {spoof_folder}")
+print(f"Unknown photos → {unknown_folder}")
 
 while True:
     ret, frame = cap.read()
@@ -167,10 +194,19 @@ while True:
         x1, y1 = map(int, box[0])
         x2, y2 = map(int, box[1])
 
-        is_live = liveness_score > LIVENESS_THRESHOLD
-        is_authentic = mean_sim_score < IDENTITY_THRESHOLD
-        is_spoof = not is_live
-        is_failed = is_spoof or (is_live and not is_authentic)
+        # ----- Raw decisions -----
+        raw_live = liveness_score > LIVENESS_THRESHOLD
+        raw_auth = min_sim_score < IDENTITY_THRESHOLD
+
+        # ----- Temporal smoothing (majority of last HISTORY_LEN frames) -----
+        live_history.append(raw_live)
+        auth_history.append(raw_auth)
+
+        is_live = sum(live_history) >= (HISTORY_LEN // 2 + 1)   # majority live
+        is_authentic = sum(auth_history) >= (HISTORY_LEN // 2 + 1)
+
+        is_spoof = not is_live                                 # only non-live = spoof
+        is_unknown = is_live and (not is_authentic)            # live but not in facebank
 
         # ---------- Decision + Display ----------
         if is_locked:
@@ -181,15 +217,17 @@ while True:
             result_text = f"Try after {remaining_lock}s"
             result_color = (0, 0, 255)
         elif is_live and is_authentic:
-            base = 80.0 + (1.0 - (mean_sim_score / IDENTITY_THRESHOLD)) * 15.0
+            # Real authorized person
+            base = 80.0 + (1.0 - (min_sim_score / IDENTITY_THRESHOLD)) * 15.0
             confidence = float(np.clip(base, 80.0, 95.0))
             status_text = "Liveliness Detected"
             status_color = (0, 255, 0)
             box_color = (0, 255, 0)
             result_text = f"Device Unlocked - {person_name}"
             result_color = (0, 255, 0)
-            failed_attempts = 0          # reset on success
+            failed_attempts = 0
         elif is_spoof:
+            # Photo or video attack (of anyone)
             confidence = float(np.clip(5.0 + random.uniform(0, 5), 5.0, 10.0))
             status_text = "Spoof Detected"
             status_color = (0, 0, 255)
@@ -197,7 +235,8 @@ while True:
             result_text = "Authentication Failed"
             result_color = (0, 0, 255)
         else:
-            confidence = float(np.clip(20.0 + (1.0 - mean_sim_score) * 30.0, 15.0, 45.0))
+            # Live unauthorized person
+            confidence = float(np.clip(20.0 + (1.0 - min_sim_score) * 30.0, 15.0, 45.0))
             status_text = "Liveliness Detected"
             status_color = (0, 255, 255)
             box_color = (0, 255, 255)
@@ -240,30 +279,24 @@ while True:
                 fear_start_time = None
 
         # ====================== SPOOF LOGIC (5 seconds) ======================
-        # Photo + Email + Failed attempt counting happens ONLY after 5 seconds
         if is_spoof and not is_locked:
             last_spoof_seen = current_time
             if spoof_start_time is None:
                 spoof_start_time = current_time
                 print(">>> Spoof timer started...")
             elif (current_time - spoof_start_time) >= SPOOF_DURATION_SECONDS:
-                # ----- 5 seconds completed -----
                 print(">>> 5s continuous Spoof detected!")
                 play_alarm("spoof")
 
-                # 1. Save spoof photo
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 spoof_path = spoof_folder / f"spoof_{timestamp}.jpg"
                 cv2.imwrite(str(spoof_path), frame)
                 print(f"Spoof photo saved: {spoof_path.name}")
-                
 
-                # 2. Send email alert
                 if (current_time - last_alert_time) >= ALERT_COOLDOWN_SECONDS:
                     send_spoof_alert()
                     last_alert_time = current_time
 
-                # 3. Count as one failed attempt
                 failed_attempts += 1
                 print(f"Failed attempt: {failed_attempts}/{MAX_FAILED_ATTEMPTS}")
 
@@ -276,11 +309,47 @@ while True:
                         f"System locked for 5 minutes due to multiple spoof attacks.\nTime of Attack: {time.strftime('%Y-%m-%d %H:%M:%S')}"
                     )
 
-                # Reset timer so it can detect next 5-second period
                 spoof_start_time = None
         else:
             if spoof_start_time and (current_time - last_spoof_seen) > RESET_TOLERANCE:
                 spoof_start_time = None
+
+        # ====================== UNKNOWN / UNAUTHORIZED LOGIC (5 seconds) ======================
+        if is_unknown and not is_locked:
+            last_unknown_seen = current_time
+            if unknown_start_time is None:
+                unknown_start_time = current_time
+                print(">>> Unknown person timer started...")
+            elif (current_time - unknown_start_time) >= UNKNOWN_DURATION_SECONDS:
+                print(">>> 5s continuous Unknown person detected!")
+                play_alarm("generic")
+
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                unknown_path = unknown_folder / f"unknown_{timestamp}.jpg"
+                cv2.imwrite(str(unknown_path), frame)
+                print(f"Unknown photo saved: {unknown_path.name}")
+
+                if (current_time - last_alert_time) >= ALERT_COOLDOWN_SECONDS:
+                    send_unknown_alert()
+                    last_alert_time = current_time
+
+                # also count as failed attempt
+                failed_attempts += 1
+                print(f"Failed attempt: {failed_attempts}/{MAX_FAILED_ATTEMPTS}")
+
+                if failed_attempts >= MAX_FAILED_ATTEMPTS:
+                    lock_until = current_time + LOCK_DURATION_SECONDS
+                    failed_attempts = 0
+                    print(f"SYSTEM LOCKED for {LOCK_DURATION_SECONDS // 60} minutes!")
+                    send_alert(
+                        "SECURITY ALERT: System Locked",
+                        f"System locked for 5 minutes due to multiple unauthorized attempts.\nTime of Attack: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
+
+                unknown_start_time = None
+        else:
+            if unknown_start_time and (current_time - last_unknown_seen) > RESET_TOLERANCE:
+                unknown_start_time = None
 
         # ---------- Extra status text ----------
         if is_locked:
@@ -289,8 +358,10 @@ while True:
             extra = f"FEAR {int(current_time - fear_start_time)}s"
         elif is_spoof and spoof_start_time:
             extra = f"SPOOF {int(current_time - spoof_start_time)}s"
+        elif is_unknown and unknown_start_time:
+            extra = f"UNKNOWN {int(current_time - unknown_start_time)}s"
         else:
-            extra = f"{dominant} ({fear_score:.2f})"
+            extra = dominant
 
         # ---------- Drawing ----------
         cv2.rectangle(canvas, (x1, y1), (x2, y2), box_color, 3)

@@ -17,7 +17,7 @@ face_database = environ.get("FACE_DATABASE")
 face_model_path = data_folder / "checkpoints" / face_recognition_model
 liveness_model_path = data_folder / "checkpoints" / liveness_model
 face_database_path = data_folder / face_database
-LIVENESS_THRESHOLD = 0.03
+LIVENESS_THRESHOLD = 0.15
 IDENTITY_THRESHOLD = 0.85
 face_detector = FaceDetection()
 
@@ -61,20 +61,21 @@ def authenticate():
 
         face = faces[0]
 
-        min_score, mean_score = identity_verifier(face)
+        min_score, mean_score, _ = identity_verifier(face)
 
         live_score = liveness_detector(face)
 
-        authenticated = bool(live_score > LIVENESS_THRESHOLD and mean_score < IDENTITY_THRESHOLD)
+        # Use min_score (best match distance) for identity decision
+        authenticated = bool(live_score > LIVENESS_THRESHOLD and min_score < IDENTITY_THRESHOLD)
 
         response = {
             "status": "success",
             "message": "Authentication completed.",
             "authentication": authenticated,
             "liveness_score": float(live_score),
-            "similarity_score": float(mean_score),
+            "similarity_score": float(min_score),
             "liveness_confidence": compute_liveness_confidence(live_score),
-            "identity_confidence": compute_identity_confidence(mean_score, IDENTITY_THRESHOLD),
+            "identity_confidence": compute_identity_confidence(min_score, IDENTITY_THRESHOLD),
         }
 
         status = 200
@@ -110,13 +111,13 @@ def recognition():
 
         face = faces[0]
 
-        min_score, mean_score = identity_verifier(face)
+        min_score, mean_score, _ = identity_verifier(face)
 
         response = {
             "status": "success",
             "message": "Face verification completed.",
-            "similarity_score": float(mean_score),
-            "identity_confidence": compute_identity_confidence(mean_score, IDENTITY_THRESHOLD),
+            "similarity_score": float(min_score),
+            "identity_confidence": compute_identity_confidence(min_score, IDENTITY_THRESHOLD),
         }
 
         status = 200
