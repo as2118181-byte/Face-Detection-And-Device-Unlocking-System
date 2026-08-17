@@ -1,0 +1,14 @@
+{
+  "status": "locked",
+  "authentication": false,
+  "user": null,
+  "identity_confidence": 0.0,
+  "liveness_confidence": 0.0,
+  "liveness_score": 0.04418795928359032,
+  "similarity_score": 0.718999981880188,
+  "message": "SYSTEM LOCKED - Try after 267s",
+  "failed_attempts": 0,
+  "max_failed_attempts": 4,
+  "pc_online": true,
+  "timestamp": "2026-08-17T20:00:09.115783"
+}
