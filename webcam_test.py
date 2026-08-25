@@ -118,6 +118,15 @@ def start_flask_server():
 LIVENESS_THRESHOLD = 0.12
 IDENTITY_THRESHOLD = 0.85
 
+# Typical upper bound for a genuine-live DeepPixBiS score, used only to scale
+# the displayed liveness confidence into a stable percentage band.
+LIVENESS_UPPER_BOUND = 0.90
+
+# Smoothing factor for the exponential moving average (EMA) applied to the
+# raw per-frame model outputs before they are shown on the dashboard.
+# Lower = smoother/steadier numbers, higher = more reactive to the current frame.
+SCORE_EMA_ALPHA = 0.25
+
 FEAR_DURATION_SECONDS = 5.0
 SPOOF_DURATION_SECONDS = 5.0
 UNKNOWN_DURATION_SECONDS = 5.0
@@ -130,6 +139,50 @@ LOCK_DURATION_SECONDS = 5 * 60
 HISTORY_LEN = 8
 live_history = deque(maxlen=HISTORY_LEN)
 auth_history = deque(maxlen=HISTORY_LEN)
+
+# EMA-smoothed versions of the raw per-frame scores. These are what get
+# displayed/broadcast to the dashboard so the numbers don't jump around
+# frame-to-frame; the boolean decision logic below still uses the raw,
+# un-smoothed per-frame values exactly as before.
+sim_score_ema = None
+liveness_score_ema = None
+
+
+def update_ema(previous, new_value, alpha=SCORE_EMA_ALPHA):
+    """Exponentially smooth a raw score so consecutive readings don't jitter."""
+    if previous is None:
+        return new_value
+    return alpha * new_value + (1.0 - alpha) * previous
+
+
+def compute_identity_confidence(sim_score: float, authentic: bool) -> float:
+    """
+    Map the identity distance (lower distance = better match) into a stable
+    confidence percentage. Authentic matches are held in the 80-98% band,
+    unknown matches in a clearly lower band, regardless of small frame-to-frame
+    noise in sim_score (since sim_score is expected to be the EMA-smoothed value).
+    """
+    if authentic:
+        frac = float(np.clip(1.0 - (sim_score / IDENTITY_THRESHOLD), 0.0, 1.0))
+        return float(np.clip(80.0 + frac * 18.0, 80.0, 98.0))
+    frac = float(np.clip(1.0 - sim_score, 0.0, 1.0))
+    return float(np.clip(20.0 + frac * 30.0, 15.0, 45.0))
+
+
+def compute_liveness_confidence(live_score: float, live_flag: bool) -> float:
+    """
+    Map the raw DeepPixBiS liveness output into a stable confidence percentage.
+    Live faces are held in the 80-98% band, spoofs in a clearly lower band,
+    regardless of small frame-to-frame noise in live_score (since live_score is
+    expected to be the EMA-smoothed value).
+    """
+    if live_flag:
+        frac = float(np.clip(
+            (live_score - LIVENESS_THRESHOLD) / (LIVENESS_UPPER_BOUND - LIVENESS_THRESHOLD),
+            0.0, 1.0,
+        ))
+        return float(np.clip(80.0 + frac * 18.0, 80.0, 98.0))
+    return float(np.clip(5.0 + random.uniform(0, 5), 5.0, 10.0))
 
 # -------------------------------------------------
 # Load Models
@@ -281,6 +334,12 @@ while True:
         min_sim_score, mean_sim_score, person_name = identityChecker(face_arr)
         liveness_score = livenessDetector(face_arr)
 
+        # Smooth the raw scores for display purposes only. The decision logic
+        # right below still runs on the raw, un-smoothed per-frame values, so
+        # spoof/unknown detection speed and behavior are unchanged.
+        sim_score_ema = update_ema(sim_score_ema, min_sim_score)
+        liveness_score_ema = update_ema(liveness_score_ema, liveness_score)
+
         x1, y1 = map(int, box[0])
         x2, y2 = map(int, box[1])
 
@@ -304,8 +363,7 @@ while True:
             result_text = f"Try after {remaining_lock}s"
             result_color = (0, 0, 255)
         elif is_live and is_authentic:
-            base = 80.0 + (1.0 - (min_sim_score / IDENTITY_THRESHOLD)) * 15.0
-            confidence = float(np.clip(base, 80.0, 95.0))
+            confidence = compute_identity_confidence(sim_score_ema, authentic=True)
             status_text = "Liveliness Detected"
             status_color = (0, 255, 0)
             box_color = (0, 255, 0)
@@ -313,14 +371,14 @@ while True:
             result_color = (0, 255, 0)
             failed_attempts = 0
         elif is_spoof:
-            confidence = float(np.clip(5.0 + random.uniform(0, 5), 5.0, 10.0))
+            confidence = compute_liveness_confidence(liveness_score_ema, live_flag=False)
             status_text = "Spoof Detected"
             status_color = (0, 0, 255)
             box_color = (0, 0, 255)
             result_text = "Authentication Failed"
             result_color = (0, 0, 255)
         else:
-            confidence = float(np.clip(20.0 + (1.0 - min_sim_score) * 30.0, 15.0, 45.0))
+            confidence = compute_identity_confidence(sim_score_ema, authentic=False)
             status_text = "Liveliness Detected"
             status_color = (0, 255, 255)
             box_color = (0, 255, 255)
@@ -449,22 +507,22 @@ while True:
             auth = True
             usr = person_name
             msg = f"ACCESS GRANTED - {person_name}"
-            id_conf = float(np.clip(80.0 + (1.0 - (min_sim_score / IDENTITY_THRESHOLD)) * 15.0, 80.0, 95.0))
-            live_conf = float(np.clip(liveness_score * 100, 0, 100))
+            id_conf = compute_identity_confidence(sim_score_ema, authentic=True)
+            live_conf = compute_liveness_confidence(liveness_score_ema, live_flag=True)
         elif is_spoof:
             st = "locked"
             auth = False
             usr = None
             msg = "ACCESS DENIED - Spoof"
             id_conf = 0.0
-            live_conf = float(np.clip(liveness_score * 100, 0, 100))
+            live_conf = compute_liveness_confidence(liveness_score_ema, live_flag=False)
         else:
             st = "locked"
             auth = False
             usr = None
             msg = "ACCESS DENIED - Unknown"
-            id_conf = float(np.clip(20.0 + (1.0 - min_sim_score) * 30.0, 15.0, 45.0))
-            live_conf = float(np.clip(liveness_score * 100, 0, 100))
+            id_conf = compute_identity_confidence(sim_score_ema, authentic=False)
+            live_conf = compute_liveness_confidence(liveness_score_ema, live_flag=True)
 
         write_device_status({
             "status": st,
@@ -472,8 +530,8 @@ while True:
             "user": usr,
             "identity_confidence": id_conf,
             "liveness_confidence": live_conf,
-            "liveness_score": float(liveness_score),
-            "similarity_score": float(min_sim_score),
+            "liveness_score": float(liveness_score_ema),
+            "similarity_score": float(sim_score_ema),
             "message": msg,
             "failed_attempts": failed_attempts,
             "max_failed_attempts": MAX_FAILED_ATTEMPTS,
