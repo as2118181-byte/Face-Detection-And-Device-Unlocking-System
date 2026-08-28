@@ -2,13 +2,13 @@
   "status": "unlocked",
   "authentication": true,
   "user": "Arun",
-  "identity_confidence": 81.98379516884756,
-  "liveness_confidence": 91.59523045352884,
-  "liveness_score": 0.6224599863195835,
-  "similarity_score": 0.7563207836933096,
+  "identity_confidence": 84.51908934388716,
+  "liveness_confidence": 98.0,
+  "liveness_score": 0.9863593899235696,
+  "similarity_score": 0.6365985587608843,
   "message": "ACCESS GRANTED - Arun",
   "failed_attempts": 0,
   "max_failed_attempts": 4,
   "pc_online": true,
-  "timestamp": "2026-08-25T16:49:20.838480"
+  "timestamp": "2026-08-28T22:39:31.667936"
 }

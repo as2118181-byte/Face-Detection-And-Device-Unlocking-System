@@ -10,15 +10,20 @@ from collections import deque
 import json
 import subprocess
 import threading
+from queue import Queue, Empty
 
 import cv2
 import numpy as np
 from dotenv import load_dotenv
 from fer.fer import FER
-from flask import Flask, Response
+from flask import Flask, Response, request, send_file
 import jsonpickle
 
 from facetools import FaceDetection, IdentityVerification, LivenessDetection
+from security_events import (
+    create_event, list_events, get_event, safe_image_path,
+    delete_event, delete_all_events
+)
 
 
 def play_alarm(alarm_type="generic"):
@@ -67,9 +72,33 @@ def write_device_status(status_dict):
 
 
 # -------------------------------------------------
-# Embedded Flask server (so only one process is needed)
+# Embedded Flask server
 # -------------------------------------------------
 flask_app = Flask(__name__)
+
+_sse_clients = []
+_sse_lock = threading.Lock()
+
+
+def _broadcast_event(event: dict):
+    payload = json.dumps({
+        "event_id": event["event_id"],
+        "type": event["type"],
+        "filename": event["filename"],
+        "timestamp": event["timestamp"],
+        "score": event.get("score"),
+    })
+    dead = []
+    with _sse_lock:
+        for q in _sse_clients:
+            try:
+                q.put_nowait(payload)
+            except Exception:
+                dead.append(q)
+        for q in dead:
+            if q in _sse_clients:
+                _sse_clients.remove(q)
+
 
 @flask_app.route("/api/device-status", methods=["GET"])
 def device_status():
@@ -109,22 +138,100 @@ def device_status():
         )
 
 
+# ---------- Security Events API ----------
+@flask_app.route("/api/security-events", methods=["GET"])
+def api_list_events():
+    limit = request.args.get("limit", 30, type=int)
+    limit = max(1, min(limit, 100))
+    events = list_events(limit=limit)
+    safe = [{
+        "event_id": e["event_id"],
+        "type": e["type"],
+        "filename": e["filename"],
+        "timestamp": e["timestamp"],
+        "score": e.get("score"),
+    } for e in events]
+    return Response(jsonpickle.encode(safe), status=200, mimetype="application/json")
+
+
+@flask_app.route("/api/security-events/<event_id>", methods=["GET"])
+def api_get_event(event_id):
+    e = get_event(event_id)
+    if not e:
+        return Response(jsonpickle.encode({"error": "not found"}), status=404, mimetype="application/json")
+    return Response(jsonpickle.encode({
+        "event_id": e["event_id"],
+        "type": e["type"],
+        "filename": e["filename"],
+        "timestamp": e["timestamp"],
+        "score": e.get("score"),
+    }), status=200, mimetype="application/json")
+
+
+@flask_app.route("/api/security-events/<event_id>/image", methods=["GET"])
+def api_event_image(event_id):
+    path = safe_image_path(event_id)
+    if path is None:
+        print(f"[EVENT] Image request rejected or missing: {event_id}")
+        return Response("Not found", status=404)
+    print(f"[EVENT] Image requested: {event_id} → {path.name}")
+    return send_file(path, mimetype="image/jpeg")
+
+
+@flask_app.route("/api/security-events/<event_id>", methods=["DELETE"])
+def api_delete_event(event_id):
+    success = delete_event(event_id)
+    if success:
+        return Response(jsonpickle.encode({"status": "deleted", "event_id": event_id}),
+                        status=200, mimetype="application/json")
+    return Response(jsonpickle.encode({"error": "not found"}), status=404, mimetype="application/json")
+
+
+@flask_app.route("/api/security-events", methods=["DELETE"])
+def api_delete_all_events():
+    count = delete_all_events()
+    return Response(jsonpickle.encode({"status": "deleted_all", "count": count}),
+                    status=200, mimetype="application/json")
+
+
+@flask_app.route("/api/security-events/stream")
+def api_event_stream():
+    def generate():
+        q = Queue(maxsize=32)
+        with _sse_lock:
+            _sse_clients.append(q)
+        print("[EVENT] APK connected to event stream")
+        try:
+            yield "data: {\"type\":\"connected\"}\n\n"
+            while True:
+                try:
+                    msg = q.get(timeout=25)
+                    yield f"data: {msg}\n\n"
+                except Empty:
+                    yield ": keepalive\n\n"
+        except GeneratorExit:
+            pass
+        finally:
+            with _sse_lock:
+                if q in _sse_clients:
+                    _sse_clients.remove(q)
+            print("[EVENT] APK disconnected from event stream")
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 def start_flask_server():
-    # Runs in background thread
     flask_app.run(host="0.0.0.0", port=5000, threaded=True, use_reloader=False)
 
 
 # Decision Thresholds
 LIVENESS_THRESHOLD = 0.12
 IDENTITY_THRESHOLD = 0.85
-
-# Typical upper bound for a genuine-live DeepPixBiS score, used only to scale
-# the displayed liveness confidence into a stable percentage band.
 LIVENESS_UPPER_BOUND = 0.90
-
-# Smoothing factor for the exponential moving average (EMA) applied to the
-# raw per-frame model outputs before they are shown on the dashboard.
-# Lower = smoother/steadier numbers, higher = more reactive to the current frame.
 SCORE_EMA_ALPHA = 0.25
 
 FEAR_DURATION_SECONDS = 5.0
@@ -140,28 +247,17 @@ HISTORY_LEN = 8
 live_history = deque(maxlen=HISTORY_LEN)
 auth_history = deque(maxlen=HISTORY_LEN)
 
-# EMA-smoothed versions of the raw per-frame scores. These are what get
-# displayed/broadcast to the dashboard so the numbers don't jump around
-# frame-to-frame; the boolean decision logic below still uses the raw,
-# un-smoothed per-frame values exactly as before.
 sim_score_ema = None
 liveness_score_ema = None
 
 
 def update_ema(previous, new_value, alpha=SCORE_EMA_ALPHA):
-    """Exponentially smooth a raw score so consecutive readings don't jitter."""
     if previous is None:
         return new_value
     return alpha * new_value + (1.0 - alpha) * previous
 
 
 def compute_identity_confidence(sim_score: float, authentic: bool) -> float:
-    """
-    Map the identity distance (lower distance = better match) into a stable
-    confidence percentage. Authentic matches are held in the 80-98% band,
-    unknown matches in a clearly lower band, regardless of small frame-to-frame
-    noise in sim_score (since sim_score is expected to be the EMA-smoothed value).
-    """
     if authentic:
         frac = float(np.clip(1.0 - (sim_score / IDENTITY_THRESHOLD), 0.0, 1.0))
         return float(np.clip(80.0 + frac * 18.0, 80.0, 98.0))
@@ -170,12 +266,6 @@ def compute_identity_confidence(sim_score: float, authentic: bool) -> float:
 
 
 def compute_liveness_confidence(live_score: float, live_flag: bool) -> float:
-    """
-    Map the raw DeepPixBiS liveness output into a stable confidence percentage.
-    Live faces are held in the 80-98% band, spoofs in a clearly lower band,
-    regardless of small frame-to-frame noise in live_score (since live_score is
-    expected to be the EMA-smoothed value).
-    """
     if live_flag:
         frac = float(np.clip(
             (live_score - LIVENESS_THRESHOLD) / (LIVENESS_UPPER_BOUND - LIVENESS_THRESHOLD),
@@ -291,7 +381,7 @@ print("=" * 55)
 flask_thread = threading.Thread(target=start_flask_server, daemon=True)
 flask_thread.start()
 
-time.sleep(1.5)  # give Flask a moment to start
+time.sleep(1.5)
 
 # -------------------------------------------------
 # Webcam
@@ -334,9 +424,6 @@ while True:
         min_sim_score, mean_sim_score, person_name = identityChecker(face_arr)
         liveness_score = livenessDetector(face_arr)
 
-        # Smooth the raw scores for display purposes only. The decision logic
-        # right below still runs on the raw, un-smoothed per-frame values, so
-        # spoof/unknown detection speed and behavior are unchanged.
         sim_score_ema = update_ema(sim_score_ema, min_sim_score)
         liveness_score_ema = update_ema(liveness_score_ema, liveness_score)
 
@@ -433,6 +520,19 @@ while True:
                 spoof_path = spoof_folder / f"spoof_{timestamp}.jpg"
                 cv2.imwrite(str(spoof_path), frame)
                 print(f"Spoof photo saved: {spoof_path.name}")
+
+                try:
+                    evt = create_event(
+                        event_type="spoof",
+                        filename=spoof_path.name,
+                        image_path=spoof_path,
+                        score=float(liveness_score_ema) if liveness_score_ema is not None else float(liveness_score),
+                    )
+                    if evt:
+                        _broadcast_event(evt)
+                except Exception as ex:
+                    print(f"[EVENT] Failed to create spoof event: {ex}")
+
                 if (current_time - last_alert_time) >= ALERT_COOLDOWN_SECONDS:
                     send_spoof_alert()
                     last_alert_time = current_time
@@ -464,6 +564,19 @@ while True:
                 unknown_path = unknown_folder / f"unknown_{timestamp}.jpg"
                 cv2.imwrite(str(unknown_path), frame)
                 print(f"Unknown photo saved: {unknown_path.name}")
+
+                try:
+                    evt = create_event(
+                        event_type="unknown",
+                        filename=unknown_path.name,
+                        image_path=unknown_path,
+                        score=float(sim_score_ema) if sim_score_ema is not None else float(min_sim_score),
+                    )
+                    if evt:
+                        _broadcast_event(evt)
+                except Exception as ex:
+                    print(f"[EVENT] Failed to create unknown event: {ex}")
+
                 if (current_time - last_alert_time) >= ALERT_COOLDOWN_SECONDS:
                     send_unknown_alert()
                     last_alert_time = current_time
