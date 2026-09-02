@@ -59,6 +59,7 @@ unknown_folder = root / "unknown_detected"
 unknown_folder.mkdir(exist_ok=True)
 
 STATUS_FILE = data_folder / "device_status.json"
+AUTH_HISTORY_FILE = data_folder / "auth_history.json"   # NEW: authentication history
 
 
 def write_device_status(status_dict):
@@ -69,6 +70,34 @@ def write_device_status(status_dict):
             json.dump(status_dict, f, indent=2)
     except Exception as e:
         print(f"[STATUS] write failed: {e}")
+
+
+# -------------------------------------------------
+# NEW: Authentication History helpers
+# -------------------------------------------------
+def _ensure_auth_history():
+    AUTH_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if not AUTH_HISTORY_FILE.exists():
+        with open(AUTH_HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump([], f)
+
+
+def append_auth_history(entry: dict):
+    """Append one successful authentication record. Keeps only last 200 entries."""
+    try:
+        _ensure_auth_history()
+        with open(AUTH_HISTORY_FILE, "r", encoding="utf-8") as f:
+            history = json.load(f)
+            if not isinstance(history, list):
+                history = []
+        history.append(entry)
+        if len(history) > 200:
+            history = history[-200:]
+        with open(AUTH_HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(history, f, indent=2)
+        print(f"[HISTORY] Saved authentication: {entry.get('name')} at {entry.get('timestamp')}")
+    except Exception as e:
+        print(f"[HISTORY] Failed to save: {e}")
 
 
 # -------------------------------------------------
@@ -370,6 +399,11 @@ last_alert_time = 0.0
 failed_attempts = 0
 lock_until = 0.0
 
+# NEW: for throttling authentication history writes
+last_auth_user = None
+last_auth_log_time = 0.0
+AUTH_HISTORY_COOLDOWN = 30.0   # seconds
+
 # -------------------------------------------------
 # Start Flask server in background
 # -------------------------------------------------
@@ -622,6 +656,26 @@ while True:
             msg = f"ACCESS GRANTED - {person_name}"
             id_conf = compute_identity_confidence(sim_score_ema, authentic=True)
             live_conf = compute_liveness_confidence(liveness_score_ema, live_flag=True)
+
+            # ---------- NEW: Store successful authentication in history ----------
+            should_log = (
+                person_name != last_auth_user or
+                (current_time - last_auth_log_time) >= AUTH_HISTORY_COOLDOWN
+            )
+            if should_log:
+                append_auth_history({
+                    "name": person_name,
+                    "timestamp": datetime.now().isoformat(),
+                    "identity_confidence": round(id_conf, 2),
+                    "liveness_confidence": round(live_conf, 2),
+                    "liveness_score": round(float(liveness_score_ema), 4),
+                    "similarity_score": round(float(sim_score_ema), 4),
+                    "message": msg,
+                })
+                last_auth_user = person_name
+                last_auth_log_time = current_time
+            # -------------------------------------------------------------------
+
         elif is_spoof:
             st = "locked"
             auth = False
