@@ -5,7 +5,7 @@ from .utils import extract_face
 class FaceDetection:
     def __init__(self, max_num_faces: int = 1):
         self.detector = mp.solutions.face_mesh.FaceMesh(
-            max_num_faces=max_num_faces, static_image_mode=True
+            max_num_faces=max_num_faces, static_image_mode=False
         )
 
     def __call__(self, image) -> Tuple[List[np.ndarray], List[List[int]]]:

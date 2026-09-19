@@ -1,0 +1,200 @@
+[
+  {
+    "name": "Arun",
+    "timestamp": "2026-09-03T13:22:21.267839",
+    "identity_confidence": 85.66,
+    "liveness_confidence": 87.0,
+    "liveness_score": 0.4233,
+    "similarity_score": 0.5826,
+    "message": "ACCESS GRANTED - Arun"
+  },
+  {
+    "name": "Arun",
+    "timestamp": "2026-09-03T13:22:50.471731",
+    "identity_confidence": 85.43,
+    "liveness_confidence": 92.45,
+    "liveness_score": 0.6597,
+    "similarity_score": 0.5936,
+    "message": "ACCESS GRANTED - Arun"
+  },
+  {
+    "name": "Arun",
+    "timestamp": "2026-09-05T10:53:39.248652",
+    "identity_confidence": 83.49,
+    "liveness_confidence": 84.91,
+    "liveness_score": 0.3329,
+    "similarity_score": 0.6853,
+    "message": "ACCESS GRANTED - Arun"
+  },
+  {
+    "name": "Arun",
+    "timestamp": "2026-09-05T10:54:09.122933",
+    "identity_confidence": 86.82,
+    "liveness_confidence": 86.52,
+    "liveness_score": 0.4024,
+    "similarity_score": 0.5281,
+    "message": "ACCESS GRANTED - Arun"
+  },
+  {
+    "name": "Arun",
+    "timestamp": "2026-09-10T22:16:49.007264",
+    "identity_confidence": 81.24,
+    "liveness_confidence": 81.52,
+    "liveness_score": 0.1858,
+    "similarity_score": 0.7916,
+    "message": "Welcome Arun"
+  },
+  {
+    "name": "Arun",
+    "timestamp": "2026-09-13T11:10:54.891987",
+    "identity_confidence": 85.56,
+    "liveness_confidence": 86.23,
+    "liveness_score": 0.3898,
+    "similarity_score": 0.5873,
+    "message": "ACCESS GRANTED - Arun"
+  },
+  {
+    "name": "Arun",
+    "timestamp": "2026-09-13T11:11:26.510133",
+    "identity_confidence": 86.67,
+    "liveness_confidence": 91.28,
+    "liveness_score": 0.6087,
+    "similarity_score": 0.535,
+    "message": "ACCESS GRANTED - Arun"
+  },
+  {
+    "name": "Arun",
+    "timestamp": "2026-09-19T10:56:58.468085",
+    "identity_confidence": 84.59,
+    "liveness_confidence": 82.69,
+    "liveness_score": 0.2366,
+    "similarity_score": 0.6331,
+    "message": "ACCESS GRANTED - Arun"
+  },
+  {
+    "name": "Arun",
+    "timestamp": "2026-09-19T10:57:28.542707",
+    "identity_confidence": 86.22,
+    "liveness_confidence": 98.0,
+    "liveness_score": 0.9814,
+    "similarity_score": 0.5564,
+    "message": "ACCESS GRANTED - Arun"
+  },
+  {
+    "name": "Arun",
+    "timestamp": "2026-09-19T11:00:23.842054",
+    "identity_confidence": 82.09,
+    "liveness_confidence": 90.01,
+    "liveness_score": 0.5538,
+    "similarity_score": 0.7513,
+    "message": "ACCESS GRANTED - Arun"
+  },
+  {
+    "name": "Arun",
+    "timestamp": "2026-09-19T11:01:36.369087",
+    "identity_confidence": 83.34,
+    "liveness_confidence": 83.17,
+    "liveness_score": 0.2572,
+    "similarity_score": 0.6923,
+    "message": "ACCESS GRANTED - Arun"
+  },
+  {
+    "name": "Arun",
+    "timestamp": "2026-09-19T11:02:06.400435",
+    "identity_confidence": 84.97,
+    "liveness_confidence": 92.29,
+    "liveness_score": 0.6524,
+    "similarity_score": 0.6154,
+    "message": "ACCESS GRANTED - Arun"
+  },
+  {
+    "name": "Arun",
+    "timestamp": "2026-09-19T11:02:36.389291",
+    "identity_confidence": 84.14,
+    "liveness_confidence": 85.51,
+    "liveness_score": 0.3588,
+    "similarity_score": 0.6546,
+    "message": "ACCESS GRANTED - Arun"
+  },
+  {
+    "name": "Arun",
+    "timestamp": "2026-09-19T11:03:16.833009",
+    "identity_confidence": 83.71,
+    "liveness_confidence": 86.12,
+    "liveness_score": 0.3851,
+    "similarity_score": 0.6746,
+    "message": "ACCESS GRANTED - Arun"
+  },
+  {
+    "name": "Arun",
+    "timestamp": "2026-09-19T11:03:51.683691",
+    "identity_confidence": 82.57,
+    "liveness_confidence": 80.79,
+    "liveness_score": 0.1544,
+    "similarity_score": 0.7288,
+    "message": "ACCESS GRANTED - Arun"
+  },
+  {
+    "name": "Arun",
+    "timestamp": "2026-09-19T11:04:24.833904",
+    "identity_confidence": 83.68,
+    "liveness_confidence": 81.25,
+    "liveness_score": 0.1742,
+    "similarity_score": 0.676,
+    "message": "ACCESS GRANTED - Arun"
+  },
+  {
+    "name": "Arun",
+    "timestamp": "2026-09-19T11:30:38.431872",
+    "identity_confidence": 83.98,
+    "liveness_confidence": 82.81,
+    "liveness_score": 0.2419,
+    "similarity_score": 0.662,
+    "message": "ACCESS GRANTED - Arun"
+  },
+  {
+    "name": "Arun",
+    "timestamp": "2026-09-19T11:36:55.371685",
+    "identity_confidence": 83.92,
+    "liveness_confidence": 91.78,
+    "liveness_score": 0.6303,
+    "similarity_score": 0.6651,
+    "message": "ACCESS GRANTED - Arun"
+  },
+  {
+    "name": "Arun",
+    "timestamp": "2026-09-19T11:37:25.406595",
+    "identity_confidence": 85.76,
+    "liveness_confidence": 92.67,
+    "liveness_score": 0.669,
+    "similarity_score": 0.5781,
+    "message": "ACCESS GRANTED - Arun"
+  },
+  {
+    "name": "Arun",
+    "timestamp": "2026-09-19T12:07:35.450864",
+    "identity_confidence": 85.13,
+    "liveness_confidence": 86.52,
+    "liveness_score": 0.4026,
+    "similarity_score": 0.6075,
+    "message": "ACCESS GRANTED - Arun"
+  },
+  {
+    "name": "Arun",
+    "timestamp": "2026-09-19T12:08:07.442798",
+    "identity_confidence": 80.92,
+    "liveness_confidence": 95.51,
+    "liveness_score": 0.7919,
+    "similarity_score": 0.8066,
+    "message": "ACCESS GRANTED - Arun"
+  },
+  {
+    "name": "Arun",
+    "timestamp": "2026-09-19T12:08:37.475977",
+    "identity_confidence": 86.52,
+    "liveness_confidence": 86.88,
+    "liveness_score": 0.4181,
+    "similarity_score": 0.5422,
+    "message": "ACCESS GRANTED - Arun"
+  }
+]

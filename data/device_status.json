@@ -1,14 +1,15 @@
 {
-  "status": "locked",
-  "authentication": false,
-  "user": null,
-  "identity_confidence": 21.010753180538117,
-  "liveness_confidence": 93.21511789051787,
-  "liveness_score": 0.6926551085891078,
-  "similarity_score": 0.9663082273153961,
-  "message": "ACCESS DENIED - Unknown",
+  "status": "unlocked",
+  "authentication": true,
+  "user": "Arun",
+  "identity_confidence": 86.36398795236411,
+  "liveness_confidence": 86.62480207367813,
+  "liveness_score": 0.4070747565260518,
+  "similarity_score": 0.5494783466939166,
+  "message": "ACCESS GRANTED - Arun",
   "failed_attempts": 0,
   "max_failed_attempts": 4,
+  "live_camera_active": true,
   "pc_online": true,
-  "timestamp": "2026-09-02T20:50:53.639968"
+  "timestamp": "2026-09-19T12:08:40.885816"
 }

@@ -59,7 +59,7 @@ unknown_folder = root / "unknown_detected"
 unknown_folder.mkdir(exist_ok=True)
 
 STATUS_FILE = data_folder / "device_status.json"
-AUTH_HISTORY_FILE = data_folder / "auth_history.json"   # NEW: authentication history
+AUTH_HISTORY_FILE = data_folder / "auth_history.json"
 
 
 def write_device_status(status_dict):
@@ -72,9 +72,6 @@ def write_device_status(status_dict):
         print(f"[STATUS] write failed: {e}")
 
 
-# -------------------------------------------------
-# NEW: Authentication History helpers
-# -------------------------------------------------
 def _ensure_auth_history():
     AUTH_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
     if not AUTH_HISTORY_FILE.exists():
@@ -83,7 +80,6 @@ def _ensure_auth_history():
 
 
 def append_auth_history(entry: dict):
-    """Append one successful authentication record. Keeps only last 200 entries."""
     try:
         _ensure_auth_history()
         with open(AUTH_HISTORY_FILE, "r", encoding="utf-8") as f:
@@ -107,6 +103,11 @@ flask_app = Flask(__name__)
 
 _sse_clients = []
 _sse_lock = threading.Lock()
+
+# Live camera stream support
+_latest_jpeg = None
+_jpeg_lock = threading.Lock()
+_live_camera_activated = False   # becomes True after first failed attempt and stays True
 
 
 def _broadcast_event(event: dict):
@@ -146,6 +147,7 @@ def device_status():
                 "timestamp": datetime.now().isoformat(),
                 "failed_attempts": 0,
                 "max_failed_attempts": 4,
+                "live_camera_active": False,
             }),
             status=200,
             mimetype="application/json",
@@ -154,6 +156,7 @@ def device_status():
         with open(STATUS_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
         data["pc_online"] = True
+        data["live_camera_active"] = _live_camera_activated
         return Response(
             response=jsonpickle.encode(data),
             status=200,
@@ -165,6 +168,19 @@ def device_status():
             status=500,
             mimetype="application/json",
         )
+
+
+@flask_app.route("/api/live-frame")
+def live_frame():
+    """Returns the latest camera frame as JPEG. Used by Flutter for smooth live view."""
+    with _jpeg_lock:
+        data = _latest_jpeg
+    if data is None:
+        return Response(status=204)
+    return Response(data, mimetype="image/jpeg",
+                    headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                             "Pragma": "no-cache",
+                             "Expires": "0"})
 
 
 # ---------- Security Events API ----------
@@ -399,10 +415,9 @@ last_alert_time = 0.0
 failed_attempts = 0
 lock_until = 0.0
 
-# NEW: for throttling authentication history writes
 last_auth_user = None
 last_auth_log_time = 0.0
-AUTH_HISTORY_COOLDOWN = 30.0   # seconds
+AUTH_HISTORY_COOLDOWN = 30.0
 
 # -------------------------------------------------
 # Start Flask server in background
@@ -426,6 +441,7 @@ print("System started... Press 'q' to quit")
 print(f"Spoof photos  → {spoof_folder}")
 print(f"Unknown photos → {unknown_folder}")
 print("Flutter can now connect to http://127.0.0.1:5000/api/device-status")
+print("Live camera stream available at http://127.0.0.1:5000/api/live-frame")
 
 while True:
     ret, frame = cap.read()
@@ -452,6 +468,7 @@ while True:
             "message": "No face detected",
             "failed_attempts": failed_attempts,
             "max_failed_attempts": MAX_FAILED_ATTEMPTS,
+            "live_camera_active": _live_camera_activated,
         })
 
     for face_arr, box in zip(faces, boxes):
@@ -572,6 +589,8 @@ while True:
                     last_alert_time = current_time
                 failed_attempts += 1
                 print(f"Failed attempt: {failed_attempts}/{MAX_FAILED_ATTEMPTS}")
+                if failed_attempts >= 1:
+                    _live_camera_activated = True
                 if failed_attempts >= MAX_FAILED_ATTEMPTS:
                     lock_until = current_time + LOCK_DURATION_SECONDS
                     failed_attempts = 0
@@ -616,6 +635,8 @@ while True:
                     last_alert_time = current_time
                 failed_attempts += 1
                 print(f"Failed attempt: {failed_attempts}/{MAX_FAILED_ATTEMPTS}")
+                if failed_attempts >= 1:
+                    _live_camera_activated = True
                 if failed_attempts >= MAX_FAILED_ATTEMPTS:
                     lock_until = current_time + LOCK_DURATION_SECONDS
                     failed_attempts = 0
@@ -657,7 +678,6 @@ while True:
             id_conf = compute_identity_confidence(sim_score_ema, authentic=True)
             live_conf = compute_liveness_confidence(liveness_score_ema, live_flag=True)
 
-            # ---------- NEW: Store successful authentication in history ----------
             should_log = (
                 person_name != last_auth_user or
                 (current_time - last_auth_log_time) >= AUTH_HISTORY_COOLDOWN
@@ -674,7 +694,6 @@ while True:
                 })
                 last_auth_user = person_name
                 last_auth_log_time = current_time
-            # -------------------------------------------------------------------
 
         elif is_spoof:
             st = "locked"
@@ -697,11 +716,12 @@ while True:
             "user": usr,
             "identity_confidence": id_conf,
             "liveness_confidence": live_conf,
-            "liveness_score": float(liveness_score_ema),
-            "similarity_score": float(sim_score_ema),
+            "liveness_score": float(liveness_score_ema) if liveness_score_ema is not None else 0.0,
+            "similarity_score": float(sim_score_ema) if sim_score_ema is not None else 0.0,
             "message": msg,
             "failed_attempts": failed_attempts,
             "max_failed_attempts": MAX_FAILED_ATTEMPTS,
+            "live_camera_active": _live_camera_activated,
         })
 
         # Drawing
@@ -713,6 +733,17 @@ while True:
         cv2.putText(canvas, result_text, (x1+10, panel_y1+58), cv2.FONT_HERSHEY_SIMPLEX, 0.60, result_color, 2)
         cv2.putText(canvas, f"Confidence: {confidence:.1f}%", (x1+10, panel_y1+88), cv2.FONT_HERSHEY_SIMPLEX, 0.60, (255,255,255), 2)
         cv2.putText(canvas, extra, (x1+10, panel_y1+118), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0,165,255), 2)
+
+    # ---- Update live frame for Flutter (always, so stream is ready) ----
+    try:
+        # Resize a bit for faster transfer over ADB (still clear)
+        stream_frame = cv2.resize(canvas, (640, 480))
+        ret_enc, buf = cv2.imencode(".jpg", stream_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
+        if ret_enc:
+            with _jpeg_lock:
+                _latest_jpeg = buf.tobytes()
+    except Exception:
+        pass
 
     cv2.imshow("AI Secure Face Authentication", canvas)
     if cv2.waitKey(1) & 0xFF == ord('q'):
